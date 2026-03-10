@@ -28,7 +28,7 @@ def start_demo5_plot(base_dir, do_record=True, name_tag=""):
     eng.workspace["app"] = app
 
     eng.eval("app.TabGroup.SelectedTab = app.Demo5Tab; drawnow;", nargout=0)
-    eng.eval("try; app.UIFigure.WindowState = 'normal'; app.UIFigure.Position = [50 50 1600 900]; catch; end; drawnow;", nargout=0)
+    eng.eval("try; app.UIFigure.WindowState = 'normal'; app.UIFigure.Position = [30 30 1600 900]; catch; end; drawnow;", nargout=0)
 
     eng.workspace["record_flag"] = bool(do_record)
     eng.workspace["record_tag"] = str(name_tag)

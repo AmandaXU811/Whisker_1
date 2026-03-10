@@ -30,6 +30,9 @@ def pose_copy(p):
     return [float(x) for x in p]
 
 def _find_ffmpeg():
+    hardcoded = r"C:\Users\AMD\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
+    if os.path.isfile(hardcoded):
+        return hardcoded
     which_path = shutil.which("ffmpeg")
     if which_path:
         return which_path
