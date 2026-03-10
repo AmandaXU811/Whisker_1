@@ -4,6 +4,7 @@ import time
 import os
 import subprocess
 from datetime import datetime
+import shutil
 
 import matlab_demo5
 
@@ -22,10 +23,20 @@ FWD_SIGN = +1      # set -1 to test backward
 
 END_UP_SLEEP = 5   # seconds at end of each loop (at left_up)
 MATLAB_QUIT_ON_EXIT = matlab_demo5.MATLAB_QUIT_ON_EXIT
+PRE_UR5_SLEEP = 5  # seconds before starting UR5 loop
 
 
 def pose_copy(p):
     return [float(x) for x in p]
+
+def _find_ffmpeg():
+    which_path = shutil.which("ffmpeg")
+    if which_path:
+        return which_path
+    env_path = os.environ.get("FFMPEG_PATH")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+    return None
 
 
 
@@ -48,11 +59,13 @@ def main():
         do_record = record_input in ("y", "yes")
         name_tag = ""
         if do_record:
-            user_tag = input("Enter name starting with 'test_' (e.g. test_a_b_c): ").strip()
-            if user_tag:
-                if not user_tag.startswith("test_"):
-                    user_tag = "test_" + user_tag
+            user_tag = input("Enter name after 'test_' (e.g. a_b_c): ").strip()
+            if user_tag.startswith("test_"):
                 name_tag = user_tag
+            elif user_tag:
+                name_tag = "test_" + user_tag
+            else:
+                name_tag = "test_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         video_input = input("Record Demo5 video via ffmpeg? (y/n): ").strip().lower()
         do_video = video_input in ("y", "yes")
 
@@ -61,45 +74,6 @@ def main():
             do_record=do_record,
             name_tag=name_tag,
         )
-        if do_video:
-            video_dir = os.path.join(os.path.dirname(__file__), "Visualization", "video")
-            os.makedirs(video_dir, exist_ok=True)
-            if name_tag:
-                video_name = f"reconstruction_{name_tag}.mp4"
-            else:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                video_name = f"reconstruction_{ts}.mp4"
-            video_path = os.path.join(video_dir, video_name)
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "gdigrab",
-                "-framerate",
-                "30",
-                "-i",
-                'title=MATLAB App',
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "23",
-                "-pix_fmt",
-                "yuv420p",
-                video_path,
-            ]
-            try:
-                ffmpeg_proc = subprocess.Popen(
-                    ffmpeg_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                print(f"Demo5 video recording started: {video_path}")
-            except FileNotFoundError:
-                print("ffmpeg not found. Please install ffmpeg and ensure it is in PATH.")
-                ffmpeg_proc = None
         print("Demo5 plotting started. Proceeding with UR5.")
         # Define left_up as CURRENT pose (no initial up/down move)
         print("Define left_up as CURRENT pose (no initial up/down move)")
@@ -111,7 +85,50 @@ def main():
 
         print("Reference left_up (current):", left_up)
         print("Reference left_down (left_up - LIFT_Z):", left_down)
-        time.sleep(10)
+        if do_video:
+            video_dir = os.path.join(os.path.dirname(__file__), "Visualization", "video")
+            os.makedirs(video_dir, exist_ok=True)
+            if name_tag:
+                video_name = f"reconstruction_{name_tag}"
+            else:
+                video_name = f"reconstruction_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            video_path = os.path.join(video_dir, video_name + ".mp4")
+            video_tmp_path = os.path.join(video_dir, video_name + ".mkv")
+            ffmpeg_path = _find_ffmpeg()
+            if not ffmpeg_path:
+                print("ffmpeg not found. Set FFMPEG_PATH or install ffmpeg in PATH.")
+            else:
+                ffmpeg_cmd = [
+                    ffmpeg_path,
+                    "-y",
+                    "-f",
+                    "gdigrab",
+                    "-framerate",
+                    "30",
+                    "-i",
+                    'title=MATLAB App',
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "15",
+                    "-pix_fmt",
+                    "yuv420p",
+                    video_tmp_path,
+                ]
+                try:
+                    ffmpeg_proc = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    print(f"Demo5 video recording started: {video_tmp_path}")
+                except Exception as e:
+                    print(f"ffmpeg failed to start: {e}")
+
+        time.sleep(PRE_UR5_SLEEP)
         for k in range(1, N_REPEAT + 1):
             print(f"\n--- Iteration {k}/{N_REPEAT} ---")
 
@@ -151,7 +168,27 @@ def main():
             if ffmpeg_proc is not None and ffmpeg_proc.stdin:
                 ffmpeg_proc.stdin.write(b"q\n")
                 ffmpeg_proc.stdin.flush()
-                ffmpeg_proc.wait(timeout=5)
+                ffmpeg_proc.wait(timeout=10)
+        except Exception:
+            pass
+        try:
+            if ffmpeg_proc is not None:
+                ffmpeg_path = _find_ffmpeg()
+                if ffmpeg_path and "video_tmp_path" in locals() and os.path.isfile(video_tmp_path):
+                    remux_cmd = [
+                        ffmpeg_path,
+                        "-y",
+                        "-i",
+                        video_tmp_path,
+                        "-c",
+                        "copy",
+                        video_path,
+                    ]
+                    subprocess.run(remux_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    try:
+                        os.remove(video_tmp_path)
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:

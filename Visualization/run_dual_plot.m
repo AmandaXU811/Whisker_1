@@ -26,7 +26,7 @@ imdl.RtR_prior = 'prior_laplace';
 %% ---------------- SERIAL SETUP ----------------
 clear device
 device = serialport(comport,115200);
-device.Timeout = 0.2; % short timeout to allow stop flag polling
+device.Timeout = 25;
 writeline(device,"y");
 disp("run_dual_plot: Serial opened on " + comport);
 
@@ -58,22 +58,16 @@ end
 stopFlag = fullfile(pwd, "stop_recording.flag");
 
 ts = datestr(now,'yyyymmdd_HHMMSS');
-if strlength(name_tag) > 0
-    csvRawPath   = fullfile(outDir, "eit_raw_"   + name_tag + ".csv");
-    csvDeltaPath = fullfile(outDir, "eit_delta_" + name_tag + ".csv");
-    csvBasePath  = fullfile(outDir, "eit_baseline_" + name_tag + ".csv");
-    matPath      = fullfile(outDir, "eit_full_"  + name_tag + ".mat");
-else
-    csvRawPath   = fullfile(outDir, "eit_raw_"   + ts + ".csv");
-    csvDeltaPath = fullfile(outDir, "eit_delta_" + ts + ".csv");
-    csvBasePath  = fullfile(outDir, "eit_baseline_" + ts + ".csv");
-    matPath      = fullfile(outDir, "eit_full_"  + ts + ".mat");
+if strlength(name_tag) == 0
+    name_tag = "test_" + string(ts);
 end
+csvRawPath   = fullfile(outDir, "eit_raw_"   + name_tag + ".csv");
+csvDeltaPath = fullfile(outDir, "eit_delta_" + name_tag + ".csv");
+csvBasePath  = fullfile(outDir, "eit_baseline_" + name_tag + ".csv");
+matPath      = fullfile(outDir, "eit_full_"  + name_tag + ".mat");
 
 disp("Recording started...");
 t0 = tic;
-
-% (warm-up removed)
 
 %% ---------------- ACQUISITION LOOP ----------------
 try
@@ -84,15 +78,7 @@ try
         end
 
         flush(device);
-        if device.NumBytesAvailable == 0
-            pause(0.01);
-            continue
-        end
-        try
-            dataLine = readline(device);
-        catch
-            continue
-        end
+        dataLine = readline(device);
         data = str2num(dataLine); %#ok<ST2NM>
 
         if isempty(data) || numel(data)~=numCh
@@ -135,17 +121,17 @@ validRows = ~all(isnan(accumulateddata),2);
 accumulateddata = accumulateddata(validRows,:);
 t = t(validRows);
 
-delta = accumulateddata - baseline;
-
 if ~do_record
     disp("run_dual_plot: recording disabled, no files saved.");
     return
 end
 
-    % Save CSV
-    writematrix(accumulateddata, csvRawPath);
-    writematrix(delta, csvDeltaPath);
-    writematrix(baseline, csvBasePath);
+delta = accumulateddata - baseline;
+
+% Save CSV
+writematrix(accumulateddata, csvRawPath);
+writematrix(delta, csvDeltaPath);
+writematrix(baseline, csvBasePath);
 
 % Save MAT (完整信息)
 meta = struct();
