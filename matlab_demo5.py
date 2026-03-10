@@ -5,21 +5,21 @@ import matlab.engine
 MATLAB_START_TIMEOUT = 60  # seconds
 PREFER_SHARED_MATLAB = True
 MATLAB_QUIT_ON_EXIT = False  # Keep MATLAB alive so async recording can finish
-MATLAB_PLOT_START_WAIT = 2.0  # seconds to wait before starting UR5
+MATLAB_PLOT_START_WAIT = 4.0  # seconds to wait before starting UR5
 
 
 def _start_matlab_engine():
     if PREFER_SHARED_MATLAB:
-        try:
-            names = matlab.engine.find_matlab()
-            if names:
-                return matlab.engine.connect_matlab(names[0]), False
-        except Exception:
-            pass
+        names = matlab.engine.find_matlab()
+        if not names:
+            raise RuntimeError(
+                "No shared MATLAB session found. Please start MATLAB and run: matlab.engine.shareEngine"
+            )
+        return matlab.engine.connect_matlab(names[0]), False
     return matlab.engine.start_matlab(), True
 
 
-def start_demo5_plot(base_dir):
+def start_demo5_plot(base_dir, do_record=True, name_tag=""):
     eng, matlab_started_here = _start_matlab_engine()
     visualization_dir = os.path.join(base_dir, "Visualization")
     eng.cd(visualization_dir, nargout=0)
@@ -29,9 +29,10 @@ def start_demo5_plot(base_dir):
 
     eng.eval("app.TabGroup.SelectedTab = app.Demo5Tab; drawnow;", nargout=0)
 
+    eng.workspace["record_flag"] = bool(do_record)
+    eng.workspace["record_tag"] = str(name_tag)
     future = eng.eval(
-        "fh = app.Demo5_StartPlottingButton.ButtonPushedFcn; "
-        "feval(fh, app.Demo5_StartPlottingButton, []);",
+        "run_dual_plot(app.Demo5_UIAxes, app.Demo5_UIAxes_2, record_flag, record_tag);",
         nargout=0,
         background=True,
     )
@@ -42,4 +43,3 @@ def start_demo5_plot(base_dir):
         raise RuntimeError("Demo5 plotting finished too quickly; check MATLAB logs.")
 
     return eng, matlab_started_here, app, future
-

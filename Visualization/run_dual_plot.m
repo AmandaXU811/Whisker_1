@@ -1,4 +1,12 @@
-function run_dual_plot(ax1, ax2)
+function run_dual_plot(ax1, ax2, do_record, name_tag)
+
+if nargin < 3 || isempty(do_record)
+    do_record = true;
+end
+if nargin < 4
+    name_tag = "";
+end
+name_tag = string(name_tag);
 
 epath = readlines("EIDORSpath.txt");
 comport = strtrim(readlines("COMdetails.txt"));
@@ -18,7 +26,7 @@ imdl.RtR_prior = 'prior_laplace';
 %% ---------------- SERIAL SETUP ----------------
 clear device
 device = serialport(comport,115200);
-device.Timeout = 25;
+device.Timeout = 0.2; % short timeout to allow stop flag polling
 writeline(device,"y");
 disp("run_dual_plot: Serial opened on " + comport);
 
@@ -40,18 +48,32 @@ accumulateddata = nan(n, numCh);
 t = nan(n,1);
 
 outDir = fullfile(pwd, "recordings");
-if ~exist(outDir,"dir"); mkdir(outDir); end
-disp("run_dual_plot: recordings dir = " + outDir);
+if do_record
+    if ~exist(outDir,"dir"); mkdir(outDir); end
+    disp("run_dual_plot: recordings dir = " + outDir);
+else
+    disp("run_dual_plot: recording disabled.");
+end
 
 stopFlag = fullfile(pwd, "stop_recording.flag");
 
 ts = datestr(now,'yyyymmdd_HHMMSS');
-csvRawPath   = fullfile(outDir, "eit_raw_"   + ts + ".csv");
-csvDeltaPath = fullfile(outDir, "eit_delta_" + ts + ".csv");
-matPath      = fullfile(outDir, "eit_full_"  + ts + ".mat");
+if strlength(name_tag) > 0
+    csvRawPath   = fullfile(outDir, "eit_raw_"   + name_tag + ".csv");
+    csvDeltaPath = fullfile(outDir, "eit_delta_" + name_tag + ".csv");
+    csvBasePath  = fullfile(outDir, "eit_baseline_" + name_tag + ".csv");
+    matPath      = fullfile(outDir, "eit_full_"  + name_tag + ".mat");
+else
+    csvRawPath   = fullfile(outDir, "eit_raw_"   + ts + ".csv");
+    csvDeltaPath = fullfile(outDir, "eit_delta_" + ts + ".csv");
+    csvBasePath  = fullfile(outDir, "eit_baseline_" + ts + ".csv");
+    matPath      = fullfile(outDir, "eit_full_"  + ts + ".mat");
+end
 
 disp("Recording started...");
 t0 = tic;
+
+% (warm-up removed)
 
 %% ---------------- ACQUISITION LOOP ----------------
 try
@@ -62,7 +84,15 @@ try
         end
 
         flush(device);
-        dataLine = readline(device);
+        if device.NumBytesAvailable == 0
+            pause(0.01);
+            continue
+        end
+        try
+            dataLine = readline(device);
+        catch
+            continue
+        end
         data = str2num(dataLine); %#ok<ST2NM>
 
         if isempty(data) || numel(data)~=numCh
@@ -107,9 +137,15 @@ t = t(validRows);
 
 delta = accumulateddata - baseline;
 
-% Save CSV
-writematrix(accumulateddata, csvRawPath);
-writematrix(delta, csvDeltaPath);
+if ~do_record
+    disp("run_dual_plot: recording disabled, no files saved.");
+    return
+end
+
+    % Save CSV
+    writematrix(accumulateddata, csvRawPath);
+    writematrix(delta, csvDeltaPath);
+    writematrix(baseline, csvBasePath);
 
 % Save MAT (完整信息)
 meta = struct();

@@ -3,6 +3,7 @@ from rtde_receive import RTDEReceiveInterface
 import time
 import os
 import subprocess
+from datetime import datetime
 
 import matlab_demo5
 
@@ -32,6 +33,7 @@ def main():
     eng = None
     matlab_started_here = False
     plot_future = None
+    ffmpeg_proc = None
     stop_flag_path = os.path.join(os.path.dirname(__file__), "Visualization", "stop_recording.flag")
     rtde_c = RTDEControlInterface(ROBOT_IP)
     rtde_r = RTDEReceiveInterface(ROBOT_IP)
@@ -42,9 +44,62 @@ def main():
         print("Starting MATLAB App_AllDemos and Demo5 plotting...")
         if os.path.exists(stop_flag_path):
             os.remove(stop_flag_path)
+        record_input = input("Record data? (y/n): ").strip().lower()
+        do_record = record_input in ("y", "yes")
+        name_tag = ""
+        if do_record:
+            user_tag = input("Enter name starting with 'test_' (e.g. test_a_b_c): ").strip()
+            if user_tag:
+                if not user_tag.startswith("test_"):
+                    user_tag = "test_" + user_tag
+                name_tag = user_tag
+        video_input = input("Record Demo5 video via ffmpeg? (y/n): ").strip().lower()
+        do_video = video_input in ("y", "yes")
+
         eng, matlab_started_here, _app, plot_future = matlab_demo5.start_demo5_plot(
-            os.path.dirname(__file__)
+            os.path.dirname(__file__),
+            do_record=do_record,
+            name_tag=name_tag,
         )
+        if do_video:
+            video_dir = os.path.join(os.path.dirname(__file__), "Visualization", "video")
+            os.makedirs(video_dir, exist_ok=True)
+            if name_tag:
+                video_name = f"reconstruction_{name_tag}.mp4"
+            else:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                video_name = f"reconstruction_{ts}.mp4"
+            video_path = os.path.join(video_dir, video_name)
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "gdigrab",
+                "-framerate",
+                "30",
+                "-i",
+                'title=MATLAB App',
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                video_path,
+            ]
+            try:
+                ffmpeg_proc = subprocess.Popen(
+                    ffmpeg_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print(f"Demo5 video recording started: {video_path}")
+            except FileNotFoundError:
+                print("ffmpeg not found. Please install ffmpeg and ensure it is in PATH.")
+                ffmpeg_proc = None
         print("Demo5 plotting started. Proceeding with UR5.")
         # Define left_up as CURRENT pose (no initial up/down move)
         print("Define left_up as CURRENT pose (no initial up/down move)")
@@ -90,6 +145,13 @@ def main():
         try:
             with open(stop_flag_path, "w", encoding="ascii") as f:
                 f.write("stop")
+        except Exception:
+            pass
+        try:
+            if ffmpeg_proc is not None and ffmpeg_proc.stdin:
+                ffmpeg_proc.stdin.write(b"q\n")
+                ffmpeg_proc.stdin.flush()
+                ffmpeg_proc.wait(timeout=5)
         except Exception:
             pass
         try:
